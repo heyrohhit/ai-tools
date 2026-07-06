@@ -18,7 +18,6 @@ const FORMATS = [
 export default function Generator() {
   const [task, setTask] = useState("");
   const [audience, setAudience] = useState("");
-  const [model, setModel] = useState("ChatGPT");
   const [tone, setTone] = useState("Professional");
   const [format, setFormat] = useState(FORMATS[0]);
 
@@ -84,9 +83,6 @@ export default function Generator() {
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Target model">
-            <Select value={model} onChange={setModel} options={MODELS} />
-          </Field>
           <Field label="Tone">
             <Select value={tone} onChange={setTone} options={TONES} />
           </Field>
