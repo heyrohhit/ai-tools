@@ -23,16 +23,23 @@ const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_URL = (key) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
 
+// Form inputs are kept short to bound abuse / prompt-injection surface.
 const MAX_LEN = 1000;
+// The GENERATED prompt is the product itself — it must not be truncated to the
+// input limit, or long structured prompts get cut off mid-sentence. Allow a
+// generous ceiling that still guards the DB against runaway output.
+const MAX_PROMPT_LEN = 20000;
 const clean = (v) => (typeof v === "string" ? v.trim().slice(0, MAX_LEN) : "");
+const cleanLong = (v) =>
+  typeof v === "string" ? v.trim().slice(0, MAX_PROMPT_LEN) : "";
 
 const CATEGORY_IDS = categories.map((c) => c.id);
 
 // Deterministic hash of the normalized inputs. Lowercased + collapsed whitespace
 // so trivial formatting differences still dedup to the same stored prompt.
-function inputHash({ task, audience, model, tone, format }) {
+function inputHash({ task, audience, model, tone, format, platform }) {
   const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  const key = [task, audience, model, tone, format].map(norm).join("|");
+  const key = [task, audience, model, tone, format, platform].map(norm).join("|");
   return createHash("sha256").update(key).digest("hex");
 }
 
@@ -73,8 +80,11 @@ export async function POST(request) {
   const model = clean(body.model) || "ChatGPT";
   const tone = clean(body.tone) || "Professional";
   const format = clean(body.format) || "Step-by-step instructions";
+  // Optional: which social platform the content targets (YouTube, Instagram…).
+  // Empty means "general / not platform-specific".
+  const platform = clean(body.platform);
 
-  const hash = inputHash({ task, audience, model, tone, format });
+  const hash = inputHash({ task, audience, model, tone, format, platform });
 
   // 1) Reuse: if this exact request was already generated, return it as-is.
   const existing = await getPromptByInputHash(hash);
@@ -98,6 +108,11 @@ export async function POST(request) {
     `Create an optimized prompt for ${model} and its library metadata.\n\n` +
     `Goal: ${task}\n` +
     (audience ? `Intended audience: ${audience}\n` : "") +
+    (platform
+      ? `Target social media platform: ${platform}. Tailor the content, ` +
+        `structure, length, hooks, and conventions to what performs well on ` +
+        `${platform}.\n`
+      : "") +
     `Desired tone: ${tone}\n` +
     `Preferred output format: ${format}\n\n` +
     `Return a JSON object with EXACTLY these keys:\n` +
@@ -118,6 +133,9 @@ export async function POST(request) {
         generationConfig: {
           temperature: 0.8,
           responseMimeType: "application/json",
+          // Give the model enough room to return long, complete prompts so the
+          // JSON isn't cut off mid-string.
+          maxOutputTokens: 8192,
         },
       }),
     });
@@ -143,7 +161,7 @@ export async function POST(request) {
     );
   }
 
-  const promptText = clean(generated.prompt);
+  const promptText = cleanLong(generated.prompt);
   if (!promptText) {
     return Response.json(
       { error: "No prompt was generated. Please try again." },

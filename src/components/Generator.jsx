@@ -14,6 +14,16 @@ const FORMATS = [
   "A single paragraph",
   "A checklist",
 ];
+// Optional — "None" keeps the prompt general / not platform-specific.
+const PLATFORMS = [
+  "None",
+  "YouTube",
+  "Instagram",
+  "TikTok",
+  "X (Twitter)",
+  "LinkedIn",
+  "Facebook",
+];
 
 export default function Generator() {
   const [task, setTask] = useState("");
@@ -21,6 +31,7 @@ export default function Generator() {
   const [model, setModel] = useState("ChatGPT");
   const [tone, setTone] = useState("Professional");
   const [format, setFormat] = useState(FORMATS[0]);
+  const [platform, setPlatform] = useState(PLATFORMS[0]);
 
   const [result, setResult] = useState("");
   const [slug, setSlug] = useState(null);
@@ -44,7 +55,16 @@ export default function Generator() {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task, audience, model, tone, format }),
+        body: JSON.stringify({
+          task,
+          audience,
+          model,
+          tone,
+          format,
+          // "None" means no specific platform — send empty so the server treats
+          // it as general / not platform-specific.
+          platform: platform === "None" ? "" : platform,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -94,6 +114,10 @@ export default function Generator() {
 
         <Field label="Output format">
           <Select value={format} onChange={setFormat} options={FORMATS} />
+        </Field>
+
+        <Field label="Social media platform (optional)">
+          <Select value={platform} onChange={setPlatform} options={PLATFORMS} />
         </Field>
 
         {error && (
