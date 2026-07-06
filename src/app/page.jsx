@@ -6,8 +6,9 @@ import StructuredData from "@/components/StructuredData";
 import { getFeaturedPrompts } from "@/lib/prompts";
 import { siteUrl, siteName, siteDescription } from "@/lib/site";
 
-// ISR: rebuild featured section periodically so new/updated prompts surface.
-export const revalidate = 60;
+// Render featured prompts from live Supabase data at request time (not baked in
+// at build), so the home page never shows a stale/empty list after deploy.
+export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const featured = await getFeaturedPrompts();

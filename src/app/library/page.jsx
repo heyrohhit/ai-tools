@@ -3,8 +3,10 @@ import StructuredData from "@/components/StructuredData";
 import { getAllPrompts, getCategories } from "@/lib/prompts";
 import { siteUrl } from "@/lib/site";
 
-// ISR: the library reflects newly generated prompts within a minute.
-export const revalidate = 60;
+// Always render from live Supabase data at request time. Static prerendering
+// risked baking in an empty list if the build ran before the table was seeded;
+// dynamic rendering guarantees the library always reflects the current DB.
+export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Prompt Library — Browse & Search AI Prompts",
