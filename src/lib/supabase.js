@@ -9,12 +9,18 @@ import { createClient } from "@supabase/supabase-js";
 // (OpenAI, admin writes) belongs in a separate server-only client.
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Accept either the legacy anon key or the newer "publishable" key
+// (sb_publishable_...). Both are the browser-safe public key — Supabase renamed
+// them, so we read whichever one is present.
+const supabaseAnonKey =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error(
     "Missing Supabase env vars. Set NEXT_PUBLIC_SUPABASE_URL and " +
-      "NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local."
+      "NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) " +
+      "in .env.local."
   );
 }
 
