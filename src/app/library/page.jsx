@@ -3,6 +3,9 @@ import StructuredData from "@/components/StructuredData";
 import { getAllPrompts, getCategories } from "@/lib/prompts";
 import { siteUrl } from "@/lib/site";
 
+// ISR: the library reflects newly generated prompts within a minute.
+export const revalidate = 60;
+
 export const metadata = {
   title: "Prompt Library — Browse & Search AI Prompts",
   description:

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
-import { Wand2, Loader2, AlertCircle } from "lucide-react";
+import { Wand2, Loader2, AlertCircle, ArrowUpRight, Check } from "lucide-react";
 import CopyButton from "@/components/CopyButton";
 
 const MODELS = ["ChatGPT", "Claude", "Midjourney"];
@@ -22,6 +23,8 @@ export default function Generator() {
   const [format, setFormat] = useState(FORMATS[0]);
 
   const [result, setResult] = useState("");
+  const [slug, setSlug] = useState(null);
+  const [reused, setReused] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -34,6 +37,8 @@ export default function Generator() {
     setError("");
     setLoading(true);
     setResult("");
+    setSlug(null);
+    setReused(false);
 
     try {
       const res = await fetch("/api/generate", {
@@ -46,6 +51,8 @@ export default function Generator() {
         throw new Error(data.error || "Something went wrong. Try again.");
       }
       setResult(data.prompt);
+      setSlug(data.slug ?? null);
+      setReused(Boolean(data.reused));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -130,13 +137,37 @@ export default function Generator() {
         </div>
 
         {result ? (
-          <motion.pre
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex-1 whitespace-pre-wrap break-words font-sans text-sm leading-6"
-          >
-            {result}
-          </motion.pre>
+          <>
+            <motion.pre
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex-1 whitespace-pre-wrap break-words font-sans text-sm leading-6"
+            >
+              {result}
+            </motion.pre>
+
+            {slug && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mt-5 border-t border-[--card-border] pt-4"
+              >
+                <p className="flex items-center gap-1.5 text-xs text-muted">
+                  <Check className="h-3.5 w-3.5 text-accent" />
+                  {reused
+                    ? "This prompt already existed — reusing the saved version."
+                    : "Saved to the public library so anyone can reuse it."}
+                </p>
+                <Link
+                  href={`/prompts/${slug}`}
+                  className="focus-accent mt-2 inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+                >
+                  View &amp; share this prompt
+                  <ArrowUpRight className="h-4 w-4" />
+                </Link>
+              </motion.div>
+            )}
+          </>
         ) : (
           <div className="flex flex-1 items-center justify-center py-16 text-center text-sm text-muted">
             {loading

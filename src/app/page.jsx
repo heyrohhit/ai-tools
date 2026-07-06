@@ -6,6 +6,9 @@ import StructuredData from "@/components/StructuredData";
 import { getFeaturedPrompts } from "@/lib/prompts";
 import { siteUrl, siteName, siteDescription } from "@/lib/site";
 
+// ISR: rebuild featured section periodically so new/updated prompts surface.
+export const revalidate = 60;
+
 export default async function Home() {
   const featured = await getFeaturedPrompts();
 

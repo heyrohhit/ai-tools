@@ -6,9 +6,15 @@ import StructuredData from "@/components/StructuredData";
 import { getPromptBySlug, getAllSlugs } from "@/lib/prompts";
 import { siteUrl, siteName } from "@/lib/site";
 
-// Pre-render every prompt page at build time (SSG) for speed + SEO.
-export function generateStaticParams() {
-  return getAllSlugs().map((slug) => ({ slug }));
+// Pre-render known prompt pages at build time (SSG) for speed + SEO. New,
+// runtime-generated prompts are rendered on-demand (dynamicParams) and then
+// cached; revalidate keeps content fresh.
+export const dynamicParams = true;
+export const revalidate = 60;
+
+export async function generateStaticParams() {
+  const slugs = await getAllSlugs();
+  return slugs.map((slug) => ({ slug }));
 }
 
 export async function generateMetadata({ params }) {
@@ -34,21 +40,41 @@ export default async function PromptPage({ params }) {
   const prompt = await getPromptBySlug(slug);
   if (!prompt) notFound();
 
-  const schema = {
+  const url = `${siteUrl}/prompts/${prompt.slug}`;
+
+  // CreativeWork describes the prompt itself (AEO/GEO — answer & generative
+  // engines read this to understand and cite the content).
+  const creativeWorkSchema = {
     "@context": "https://schema.org",
     "@type": "CreativeWork",
     name: prompt.title,
+    headline: prompt.title,
     description: prompt.description,
-    url: `${siteUrl}/prompts/${prompt.slug}`,
+    url,
     keywords: prompt.tags.join(", "),
     genre: prompt.category,
+    text: prompt.content,
+    inLanguage: "en",
     isAccessibleForFree: true,
+    ...(prompt.created_at ? { datePublished: prompt.created_at } : {}),
     publisher: { "@type": "Organization", name: siteName },
+  };
+
+  // Breadcrumb helps search engines render a rich navigation trail.
+  const breadcrumbSchema = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: siteUrl },
+      { "@type": "ListItem", position: 2, name: "Library", item: `${siteUrl}/library` },
+      { "@type": "ListItem", position: 3, name: prompt.title, item: url },
+    ],
   };
 
   return (
     <article className="mx-auto max-w-3xl px-6 pt-36 pb-12">
-      <StructuredData data={schema} />
+      <StructuredData data={creativeWorkSchema} />
+      <StructuredData data={breadcrumbSchema} />
 
       <Link
         href="/library"

@@ -1,17 +1,49 @@
 // POST /api/generate — turns the generator form inputs into a polished,
-// structured prompt using Google Gemini (free tier). This runs ONLY on the
-// server, so the GEMINI_API_KEY never reaches the browser.
+// structured prompt using Google Gemini, then PERSISTS it to Supabase so the
+// prompt becomes a public, reusable, SEO-indexed page (/prompts/<slug>).
+//
+// Dedup: identical inputs map to a deterministic hash. If a prompt with that
+// hash already exists we return it instantly — no AI call, no duplicate row.
+//
+// This runs ONLY on the server, so GEMINI_API_KEY never reaches the browser.
+// Writes use the anon client and are allowed by the RLS "generated" insert
+// policy (see supabase/schema.sql).
+
+import { createHash } from "node:crypto";
+import { revalidatePath } from "next/cache";
+import { categories } from "@/data/prompts";
+import {
+  getPromptByInputHash,
+  createGeneratedPrompt,
+} from "@/lib/prompts";
 
 export const runtime = "nodejs";
 
-// Gemini's free tier. Override with GEMINI_MODEL if you like.
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const GEMINI_URL = (key) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${key}`;
 
-// Guardrails so a caller can't push huge payloads at the AI service.
 const MAX_LEN = 1000;
 const clean = (v) => (typeof v === "string" ? v.trim().slice(0, MAX_LEN) : "");
+
+const CATEGORY_IDS = categories.map((c) => c.id);
+
+// Deterministic hash of the normalized inputs. Lowercased + collapsed whitespace
+// so trivial formatting differences still dedup to the same stored prompt.
+function inputHash({ task, audience, model, tone, format }) {
+  const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const key = [task, audience, model, tone, format].map(norm).join("|");
+  return createHash("sha256").update(key).digest("hex");
+}
+
+function slugify(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+}
 
 export async function POST(request) {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -42,22 +74,40 @@ export async function POST(request) {
   const tone = clean(body.tone) || "Professional";
   const format = clean(body.format) || "Step-by-step instructions";
 
+  const hash = inputHash({ task, audience, model, tone, format });
+
+  // 1) Reuse: if this exact request was already generated, return it as-is.
+  const existing = await getPromptByInputHash(hash);
+  if (existing) {
+    return Response.json({
+      prompt: existing.content,
+      slug: existing.slug,
+      reused: true,
+    });
+  }
+
+  // 2) Generate. Ask Gemini for the prompt AND its library metadata as JSON so
+  //    every generation becomes a well-formed, categorized, tagged library page.
   const system =
-    "You are a world-class prompt engineer. You write clear, structured, " +
-    "reusable prompts that get excellent results from AI models. You return " +
-    "ONLY the finished prompt itself — no preamble, no explanation, no " +
-    "markdown code fences. Use [SQUARE_BRACKET] placeholders for anything the " +
-    "user should fill in.";
+    "You are a world-class prompt engineer and SEO editor. You write clear, " +
+    "structured, reusable prompts and concise metadata for a public prompt " +
+    "library. Use [SQUARE_BRACKET] placeholders inside prompts for anything the " +
+    "user should fill in. Return ONLY valid JSON — no markdown, no code fences.";
 
   const user =
-    `Write an optimized prompt for ${model}.\n\n` +
+    `Create an optimized prompt for ${model} and its library metadata.\n\n` +
     `Goal: ${task}\n` +
     (audience ? `Intended audience: ${audience}\n` : "") +
     `Desired tone: ${tone}\n` +
     `Preferred output format: ${format}\n\n` +
-    `Make the prompt specific, include a clear role for the AI, and structure ` +
-    `it so the result is high quality and consistent.`;
+    `Return a JSON object with EXACTLY these keys:\n` +
+    `- "prompt": the finished prompt (string, no preamble, no code fences)\n` +
+    `- "title": a short, specific title, max 60 characters\n` +
+    `- "description": a one-sentence summary, max 155 characters\n` +
+    `- "category": one of ${JSON.stringify(CATEGORY_IDS)}\n` +
+    `- "tags": an array of 3-6 lowercase keyword strings`;
 
+  let generated;
   try {
     const res = await fetch(GEMINI_URL(apiKey), {
       method: "POST",
@@ -65,12 +115,14 @@ export async function POST(request) {
       body: JSON.stringify({
         system_instruction: { parts: [{ text: system }] },
         contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.8 },
+        generationConfig: {
+          temperature: 0.8,
+          responseMimeType: "application/json",
+        },
       }),
     });
 
     if (!res.ok) {
-      // Surface a friendly message; log the detail server-side only.
       const detail = await res.text();
       console.error("Gemini error:", res.status, detail);
       return Response.json(
@@ -80,21 +132,73 @@ export async function POST(request) {
     }
 
     const data = await res.json();
-    const prompt = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-
-    if (!prompt) {
-      return Response.json(
-        { error: "No prompt was generated. Please try again." },
-        { status: 502 }
-      );
-    }
-
-    return Response.json({ prompt });
+    const raw = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!raw) throw new Error("empty response");
+    generated = JSON.parse(raw);
   } catch (err) {
     console.error("Generate route failed:", err);
     return Response.json(
-      { error: "Could not reach the AI service. Please try again." },
+      { error: "Could not generate a prompt. Please try again." },
       { status: 502 }
     );
   }
+
+  const promptText = clean(generated.prompt);
+  if (!promptText) {
+    return Response.json(
+      { error: "No prompt was generated. Please try again." },
+      { status: 502 }
+    );
+  }
+
+  // Normalize / validate the model-provided metadata before it hits the DB.
+  const title = (clean(generated.title) || task).slice(0, 90);
+  const description =
+    (clean(generated.description) || `A ${tone.toLowerCase()} prompt for ${model}.`).slice(0, 155);
+  const category = CATEGORY_IDS.includes(generated.category)
+    ? generated.category
+    : model.toLowerCase() === "midjourney"
+    ? "image"
+    : "productivity";
+  const tags = Array.isArray(generated.tags)
+    ? generated.tags
+        .filter((t) => typeof t === "string")
+        .map((t) => t.toLowerCase().trim())
+        .filter(Boolean)
+        .slice(0, 6)
+    : [];
+
+  // Slug must be unique; suffix with a short hash slice so distinct requests
+  // with similar titles never collide.
+  const slug = `${slugify(title) || "prompt"}-${hash.slice(0, 8)}`;
+
+  const row = {
+    slug,
+    title,
+    description,
+    content: promptText,
+    category,
+    tags,
+    models: [model],
+    input_hash: hash,
+  };
+
+  const saved = await createGeneratedPrompt(row);
+
+  // If the save failed, still return the prompt so the user isn't blocked.
+  if (!saved) {
+    return Response.json({ prompt: promptText, slug: null, saved: false });
+  }
+
+  // Refresh the dynamic listings so the new prompt shows up immediately.
+  revalidatePath("/library");
+  revalidatePath("/");
+  revalidatePath(`/prompts/${saved.slug}`);
+
+  return Response.json({
+    prompt: saved.content,
+    slug: saved.slug,
+    reused: false,
+    saved: true,
+  });
 }
