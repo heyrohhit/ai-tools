@@ -64,4 +64,24 @@ create policy "Anon can insert generated prompts"
     and input_hash is not null
   );
 
+-- ── Realtime ─────────────────────────────────────────────────────────────────
+-- Stream INSERT / UPDATE / DELETE on prompts to subscribed browsers so the
+-- library and featured lists update live (see src/hooks/useRealtimePrompts.js).
+-- Idempotent: only adds the table to the realtime publication if not already in.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'prompts'
+  ) then
+    alter publication supabase_realtime add table public.prompts;
+  end if;
+end $$;
+
+-- DELETE events carry the primary key by default; FULL also exposes old values
+-- of other columns, which keeps filtered live views (e.g. featured-only) correct.
+alter table public.prompts replica identity full;
+
 -- Seed the curated prompts by running supabase/seed.sql after this file.

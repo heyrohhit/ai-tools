@@ -4,11 +4,14 @@ import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Search, X } from "lucide-react";
 import PromptCard from "@/components/PromptCard";
+import { useRealtimePrompts } from "@/hooks/useRealtimePrompts";
 
-// Client-side library: real-time search + category filtering over prompts
-// passed in from the server. Filtering is a pure useMemo over props, so there's
-// no data fetching here — instant and SSR-friendly.
-export default function PromptLibrary({ prompts, categories }) {
+// Client-side library: live search + category filtering over prompts seeded
+// from the server. The list itself is live via Supabase Realtime, so newly
+// generated/updated/deleted prompts appear without a refresh; filtering is a
+// pure useMemo on top of that live list.
+export default function PromptLibrary({ prompts: initialPrompts, categories }) {
+  const prompts = useRealtimePrompts(initialPrompts);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState("all");
 

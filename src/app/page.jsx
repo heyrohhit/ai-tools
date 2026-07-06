@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import Hero from "@/components/Hero";
-import PromptCard from "@/components/PromptCard";
+import FeaturedPrompts from "@/components/FeaturedPrompts";
 import StructuredData from "@/components/StructuredData";
 import { getFeaturedPrompts } from "@/lib/prompts";
 import { siteUrl, siteName, siteDescription } from "@/lib/site";
@@ -52,11 +52,7 @@ export default async function Home() {
           </Link>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {featured.map((p) => (
-            <PromptCard key={p.id} prompt={p} />
-          ))}
-        </div>
+        <FeaturedPrompts prompts={featured} />
       </section>
 
       {/* Generator CTA */}
