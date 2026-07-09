@@ -35,11 +35,34 @@ const cleanLong = (v) =>
 
 const CATEGORY_IDS = categories.map((c) => c.id);
 
+// Purpose-to-category mapping for the enhanced generator.
+const PURPOSE_CATEGORY_MAP = {
+  image: "image",
+  song: "writing",
+  video: "image",
+  story: "writing",
+  blog: "writing",
+  code: "coding",
+  email: "marketing",
+  social: "marketing",
+};
+
+const PURPOSE_LABELS = {
+  image: "Image",
+  song: "Song",
+  video: "Video",
+  story: "Story",
+  blog: "Blog Post",
+  code: "Code",
+  email: "Email",
+  social: "Social Media",
+};
+
 // Deterministic hash of the normalized inputs. Lowercased + collapsed whitespace
 // so trivial formatting differences still dedup to the same stored prompt.
-function inputHash({ task, audience, model, tone, format, platform }) {
+function inputHash({ purpose, task, audience, model, tone, format, platform, style }) {
   const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").trim();
-  const key = [task, audience, model, tone, format, platform].map(norm).join("|");
+  const key = [purpose, task, audience, model, tone, format, platform, style].map(norm).join("|");
   return createHash("sha256").update(key).digest("hex");
 }
 
@@ -68,6 +91,10 @@ export async function POST(request) {
     return Response.json({ error: "Invalid request body." }, { status: 400 });
   }
 
+  // Validate purpose against known keys; fall back to "blog" for safety.
+  const PURPOSE_KEYS = Object.keys(PURPOSE_CATEGORY_MAP);
+  const rawPurpose = clean(body.purpose);
+  const purpose = PURPOSE_KEYS.includes(rawPurpose) ? rawPurpose : "blog";
   const task = clean(body.task);
   if (!task) {
     return Response.json(
@@ -83,8 +110,14 @@ export async function POST(request) {
   // Optional: which social platform the content targets (YouTube, Instagram…).
   // Empty means "general / not platform-specific".
   const platform = clean(body.platform);
+  // Style selection — "trending" triggers Google Search grounding.
+  // Only "trending" is checked server-side (exact match), so unvalidated
+  // style strings are harmless — they just produce the same non-trending prompt.
+  const VALID_STYLES = ["trending", "professional", "creative", "minimal", "vintage", "modern"];
+  const rawStyle = clean(body.style);
+  const style = VALID_STYLES.includes(rawStyle) ? rawStyle : "professional";
 
-  const hash = inputHash({ task, audience, model, tone, format, platform });
+  const hash = inputHash({ purpose, task, audience, model, tone, format, platform, style });
 
   // 1) Reuse: if this exact request was already generated, return it as-is.
   const existing = await getPromptByInputHash(hash);
@@ -98,15 +131,27 @@ export async function POST(request) {
 
   // 2) Generate. Ask Gemini for the prompt AND its library metadata as JSON so
   //    every generation becomes a well-formed, categorized, tagged library page.
+  //    When style is "trending", enable Google Search grounding so Gemini can
+  //    look up current trends in the selected purpose category.
+  const isTrending = style === "trending";
+  const purposeLabel = PURPOSE_LABELS[purpose] || purpose;
+
   const system =
     "You are a world-class prompt engineer and SEO editor. You write clear, " +
     "structured, reusable prompts and concise metadata for a public prompt " +
     "library. Use [SQUARE_BRACKET] placeholders inside prompts for anything the " +
-    "user should fill in. Return ONLY valid JSON — no markdown, no code fences.";
+    "user should fill in. Return ONLY valid JSON — no markdown, no code fences."
+    + (isTrending
+      ? " You have access to web search. Use it to find the latest trending styles, " +
+        "aesthetics, and popular techniques in the user's selected category so the " +
+        "generated prompt reflects what is currently viral and in-demand."
+      : "");
 
   const user =
-    `Create an optimized prompt for ${model} and its library metadata.\n\n` +
+    `Create an optimized ${purposeLabel.toLowerCase()} prompt for ${model} and its library metadata.\n\n` +
+    `Purpose: ${purposeLabel}\n` +
     `Goal: ${task}\n` +
+    `Style: ${style}${isTrending ? " (search the web for the latest trending styles in this category and incorporate them)" : ""}\n` +
     (audience ? `Intended audience: ${audience}\n` : "") +
     (platform
       ? `Target social media platform: ${platform}. Tailor the content, ` +
@@ -133,10 +178,11 @@ export async function POST(request) {
         generationConfig: {
           temperature: 0.8,
           responseMimeType: "application/json",
-          // Give the model enough room to return long, complete prompts so the
-          // JSON isn't cut off mid-string.
           maxOutputTokens: 8192,
         },
+        ...(isTrending && {
+          tools: [{ googleSearchRetrieval: {} }],
+        }),
       }),
     });
 
@@ -173,11 +219,11 @@ export async function POST(request) {
   const title = (clean(generated.title) || task).slice(0, 90);
   const description =
     (clean(generated.description) || `A ${tone.toLowerCase()} prompt for ${model}.`).slice(0, 155);
+  // Prefer AI-returned category, then fall back to purpose mapping, then model heuristic.
   const category = CATEGORY_IDS.includes(generated.category)
     ? generated.category
-    : model.toLowerCase() === "midjourney"
-    ? "image"
-    : "productivity";
+    : PURPOSE_CATEGORY_MAP[purpose]
+    || (model.toLowerCase() === "midjourney" ? "image" : "productivity");
   const tags = Array.isArray(generated.tags)
     ? generated.tags
         .filter((t) => typeof t === "string")

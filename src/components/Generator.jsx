@@ -3,8 +3,19 @@
 import { useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Wand2, Loader2, AlertCircle, ArrowUpRight, Check } from "lucide-react";
+import { Wand2, Loader2, AlertCircle, ArrowUpRight, Check, TrendingUp } from "lucide-react";
 import CopyButton from "@/components/CopyButton";
+
+const PURPOSES = [
+  { id: "image", label: "Image", emoji: "🎨" },
+  { id: "song", label: "Song", emoji: "🎵" },
+  { id: "video", label: "Video", emoji: "🎬" },
+  { id: "story", label: "Story", emoji: "📖" },
+  { id: "blog", label: "Blog Post", emoji: "📝" },
+  { id: "code", label: "Code", emoji: "💻" },
+  { id: "email", label: "Email", emoji: "📧" },
+  { id: "social", label: "Social Media", emoji: "📱" },
+];
 
 const MODELS = ["ChatGPT", "Claude", "Midjourney"];
 const TONES = ["Professional", "Friendly", "Persuasive", "Technical", "Playful"];
@@ -14,7 +25,6 @@ const FORMATS = [
   "A single paragraph",
   "A checklist",
 ];
-// Optional — "None" keeps the prompt general / not platform-specific.
 const PLATFORMS = [
   "None",
   "YouTube",
@@ -25,13 +35,24 @@ const PLATFORMS = [
   "Facebook",
 ];
 
+const STYLES = [
+  { id: "trending", label: "Trending Now", icon: TrendingUp },
+  { id: "professional", label: "Professional", emoji: "💼" },
+  { id: "creative", label: "Creative", emoji: "✨" },
+  { id: "minimal", label: "Minimal", emoji: "🎯" },
+  { id: "vintage", label: "Vintage", emoji: "📜" },
+  { id: "modern", label: "Modern", emoji: "🚀" },
+];
+
 export default function Generator() {
+  const [purpose, setPurpose] = useState(PURPOSES[0].id);
   const [task, setTask] = useState("");
   const [audience, setAudience] = useState("");
   const [model, setModel] = useState("ChatGPT");
   const [tone, setTone] = useState("Professional");
   const [format, setFormat] = useState(FORMATS[0]);
   const [platform, setPlatform] = useState(PLATFORMS[0]);
+  const [style, setStyle] = useState("professional");
 
   const [result, setResult] = useState("");
   const [slug, setSlug] = useState(null);
@@ -56,14 +77,14 @@ export default function Generator() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          purpose,
           task,
           audience,
           model,
           tone,
           format,
-          // "None" means no specific platform — send empty so the server treats
-          // it as general / not platform-specific.
           platform: platform === "None" ? "" : platform,
+          style,
         }),
       });
       const data = await res.json();
@@ -84,12 +105,33 @@ export default function Generator() {
     <div className="mx-auto grid max-w-5xl gap-6 px-6 lg:grid-cols-2">
       {/* Form */}
       <form onSubmit={handleSubmit} className="glass rounded-[--radius-apple] p-6">
-        <Field label="What should the prompt do?">
+        {/* Purpose Selection */}
+        <Field label="What do you want to create?">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {PURPOSES.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPurpose(p.id)}
+                className={`flex flex-col items-center gap-1 rounded-xl border p-3 text-xs transition-all ${
+                  purpose === p.id
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-[--card-border] hover:border-accent/50"
+                }`}
+              >
+                <span className="text-lg">{p.emoji}</span>
+                <span>{p.label}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field label="Describe your idea in detail">
           <textarea
             value={task}
             onChange={(e) => setTask(e.target.value)}
             rows={3}
-            placeholder="e.g. Write a product launch announcement for a new app"
+            placeholder="e.g. A cinematic drone shot of a mountain village at golden hour for a travel vlog"
             className="focus-accent w-full resize-none rounded-xl border border-[--card-border] bg-transparent px-3.5 py-2.5 text-sm outline-none placeholder:text-muted"
           />
         </Field>
@@ -98,9 +140,30 @@ export default function Generator() {
           <input
             value={audience}
             onChange={(e) => setAudience(e.target.value)}
-            placeholder="e.g. busy startup founders"
+            placeholder="e.g. travel enthusiasts, tech developers"
             className="focus-accent w-full rounded-xl border border-[--card-border] bg-transparent px-3.5 py-2.5 text-sm outline-none placeholder:text-muted"
           />
+        </Field>
+
+        {/* Style Selection */}
+        <Field label="Style">
+          <div className="flex flex-wrap gap-2">
+            {STYLES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onClick={() => setStyle(s.id)}
+                className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${
+                  style === s.id
+                    ? "border-accent bg-accent text-white"
+                    : "border-[--card-border] hover:border-accent/50"
+                }`}
+              >
+                {s.icon ? <s.icon className="h-3 w-3" /> : <span>{s.emoji}</span>}
+                {s.label}
+              </button>
+            ))}
+          </div>
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
