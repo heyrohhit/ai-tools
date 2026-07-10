@@ -2,7 +2,8 @@
 
 // Server Actions for the admin panel.
 //
-// These run only on the server. Sign-in/out drive Supabase Auth (cookies set via
+// These run only on the server. Sign-in/ou
+// \t drive Supabase Auth (cookies set via
 // the SSR client); the write actions (update/delete/feature) run as the signed-in
 // admin, so the RLS policies in supabase/admin.sql authorize them at the DB layer.
 // Every write also re-checks getAdminUser() first — belt and suspenders.
